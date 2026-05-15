@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============ ENUMS ============
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  STAFF
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum FieldType {
+  text
+  textarea
+  integer
+  decimal
+  date
+  boolean
+  select
+  multi_select
+  email
+  phone
+  currency
+}
+
+enum TemplateType {
+  HTML
+  XML
+}
+
+enum ExportFormat {
+  PDF
+  XML
+  PDFA3
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  CANCELLED
+}
+
+enum AuditAction {
+  USER_LOGIN
+  USER_LOGOUT
+  CUSTOMER_CREATED
+  CUSTOMER_UPDATED
+  CUSTOMER_DELETED
+  COMPANY_UPDATED
+  FIELD_CREATED
+  FIELD_UPDATED
+  FIELD_DELETED
+  OPTION_MAPPER_CREATED
+  OPTION_MAPPER_UPDATED
+  OPTION_MAPPER_DELETED
+  TEMPLATE_UPLOADED
+  TEMPLATE_UPDATED
+  TEMPLATE_DELETED
+  DOCUMENT_GENERATED
+  DOCUMENT_DOWNLOADED
+  DOCUMENT_DELETED
+  GENERATION_FAILED
+  INVOICE_UPDATED
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+}
+
+// ============ MODELS ============
+
+model User {
+  id                 String              @id @db.Uuid
+  name               String
+  email              String              @unique
+  role               Role                @default(STAFF)
+  status             UserStatus          @default(ACTIVE)
+  lastLoginAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  auditLogs          AuditLog[]
+  generatedDocuments GeneratedDocument[]
+}
+
+model Customer {
+  id                  String                 @id @default(cuid())
+  name                String
+  email               String?
+  phone               String?
+  address             String?
+  status              CustomerStatus         @default(ACTIVE)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  fieldValues         CustomerFieldValue[]
+  invoices            Invoice[]
+  generatedDocuments  GeneratedDocument[]
+
+  @@index([name])
+}
+
+model CustomerFieldConfig {
+  id             String                @id @default(cuid())
+  key            String                @unique
+  name           String
+  type           FieldType
+  optionMapperId String?
+  optionMapper   OptionMapper?         @relation(fields: [optionMapperId], references: [id])
+  required       Boolean               @default(false)
+  defaultValue   String?
+  placeholder    String?
+  helpText       String?
+  displayOrder   Int                   @default(0)
+  isActive       Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  values         CustomerFieldValue[]
+}
+
+model CustomerFieldValue {
+  id             String              @id @default(cuid())
+  customerId     String
+  customer       Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  fieldConfigId  String
+  fieldConfig    CustomerFieldConfig @relation(fields: [fieldConfigId], references: [id], onDelete: Cascade)
+  key            String
+  value          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([customerId, fieldConfigId])
+  @@index([key])
+}
+
+model CompanyProfile {
+  id          String   @id @default(cuid())
+  companyName String
+  address     String?
+  vatId       String?
+  email       String?
+  phone       String?
+  website     String?
+  bankName    String?
+  iban        String?
+  swift       String?
+  taxNumber   String?
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  fieldValues CompanyFieldValue[]
+}
+
+model CompanyFieldConfig {
+  id             String              @id @default(cuid())
+  key            String              @unique
+  name           String
+  type           FieldType
+  optionMapperId String?
+  optionMapper   OptionMapper?       @relation(fields: [optionMapperId], references: [id])
+  required       Boolean             @default(false)
+  defaultValue   String?
+  placeholder    String?
+  helpText       String?
+  displayOrder   Int                 @default(0)
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  values         CompanyFieldValue[]
+}
+
+model CompanyFieldValue {
+  id              String             @id @default(cuid())
+  companyId       String
+  company         CompanyProfile     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fieldConfigId   String
+  fieldConfig     CompanyFieldConfig @relation(fields: [fieldConfigId], references: [id], onDelete: Cascade)
+  key             String
+  value           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([companyId, fieldConfigId])
+}
+
+model OptionMapper {
+  id               String                @id @default(cuid())
+  key              String                @unique
+  label            String
+  isActive         Boolean               @default(true)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  values           OptionMapperValue[]
+  customerFields   CustomerFieldConfig[]
+  companyFields    CompanyFieldConfig[]
+}
+
+model OptionMapperValue {
+  id             String       @id @default(cuid())
+  optionMapperId String
+  optionMapper   OptionMapper @relation(fields: [optionMapperId], references: [id], onDelete: Cascade)
+  label          String
+  value          String
+  displayOrder   Int          @default(0)
+  isActive       Boolean      @default(true)
+}
+
+model Invoice {
+  id                       String              @id @default(cuid())
+  customerId               String
+  customer                 Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  invoiceNumber            String
+  quoteNumber              String?
+  invoiceDate              DateTime?
+  performancePeriodStart   DateTime?
+  performancePeriodEnd     DateTime?
+  paymentTerms             String?
+  taxMode                  String?
+  currency                 String              @default("EUR")
+  notes                    String?
+  status                   InvoiceStatus       @default(DRAFT)
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  lineItems                InvoiceLineItem[]
+  generatedDocuments       GeneratedDocument[]
+
+  @@index([customerId])
+  @@index([invoiceNumber])
+}
+
+model InvoiceLineItem {
+  id           String   @id @default(cuid())
+  invoiceId    String
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  pos          Int
+  key          String?
+  label        String?
+  description  String?
+  quantity     Float    @default(0)
+  unit         String?
+  unitPrice    Float    @default(0)
+  taxType      String?
+  amount       Float    @default(0)
+  value        String?
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ReportTemplate {
+  id                  String              @id @default(cuid())
+  reportName          String
+  reportType          String
+  templateType        TemplateType
+  fileNameFormula     String
+  templatePath        String
+  originalFileName    String
+  version             Int                 @default(1)
+  isActive            Boolean             @default(true)
+  description         String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  generatedDocuments  GeneratedDocument[]
+}
+
+model GeneratedDocument {
+  id               String         @id @default(cuid())
+  customerId       String?
+  customer         Customer?      @relation(fields: [customerId], references: [id])
+  invoiceId        String?
+  invoice          Invoice?       @relation(fields: [invoiceId], references: [id])
+  reportTemplateId String?
+  reportTemplate   ReportTemplate? @relation(fields: [reportTemplateId], references: [id])
+  fileName         String
+  filePath         String
+  documentType     String
+  exportFormat     ExportFormat
+  fileSize         Int            @default(0)
+  generatedById    String?        @db.Uuid
+  generatedBy      User?          @relation(fields: [generatedById], references: [id])
+  metadata         Json?
+  createdAt        DateTime       @default(now())
+
+  @@index([customerId])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?     @db.Uuid
+  user       User?       @relation(fields: [userId], references: [id])
+  action     AuditAction
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime    @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+}
+
+model AppSetting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
