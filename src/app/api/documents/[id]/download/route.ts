@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import fs from "node:fs/promises";
-import path from "node:path";
 import { getSession } from "@/server/actions/auth-helper";
 import { prisma } from "@/lib/prisma";
 import { can } from "@/lib/permissions";
-import { STORAGE } from "@/lib/storage/local";
+import { readFile } from "@/lib/storage/local";
 import { logAudit } from "@/lib/audit";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -16,12 +14,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const doc = await prisma.generatedDocument.findUnique({ where: { id } });
   if (!doc) return new NextResponse("Not found", { status: 404 });
 
-  // Restrict to upload root — defense in depth
-  const resolved = path.resolve(doc.filePath);
-  if (!resolved.startsWith(STORAGE.root)) return new NextResponse("Forbidden", { status: 403 });
-
   let buffer: Buffer;
-  try { buffer = await fs.readFile(resolved); } catch { return new NextResponse("File missing", { status: 404 }); }
+  try {
+    buffer = await readFile(doc.filePath);
+  } catch {
+    return new NextResponse("File missing", { status: 404 });
+  }
 
   await logAudit({
     userId: session.user.id,
@@ -31,7 +29,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   });
 
   const ext = doc.fileName.split(".").pop()?.toLowerCase();
-  const mime = ext === "pdf" ? "application/pdf" : ext === "xml" ? "application/xml" : "application/octet-stream";
+  const mime =
+    ext === "pdf" ? "application/pdf" :
+    ext === "xml" ? "application/xml" :
+    "application/octet-stream";
 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {

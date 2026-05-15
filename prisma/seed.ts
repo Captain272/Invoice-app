@@ -1,13 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { createClient } from "@supabase/supabase-js";
-import fs from "node:fs/promises";
-import path from "node:path";
 
 const prisma = new PrismaClient();
-
-const UPLOAD_DIR = process.env.UPLOAD_DIR
-  ? path.resolve(process.env.UPLOAD_DIR)
-  : path.resolve(process.cwd(), "uploads");
 
 const SAMPLE_INVOICE_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -142,9 +136,7 @@ const SAMPLE_INVOICE_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </Invoice>`;
 
 async function ensureUploadDirs() {
-  for (const sub of ["templates", "logos", "generated"]) {
-    await fs.mkdir(path.join(UPLOAD_DIR, sub), { recursive: true });
-  }
+  // No-op: storage is now Supabase Storage. Bucket is auto-created on first write.
 }
 
 async function main() {
@@ -262,11 +254,10 @@ async function main() {
   }
 
   // ---- REPORT TEMPLATES ----
-  const templatesDir = path.join(UPLOAD_DIR, "templates");
-  const htmlPath = path.join(templatesDir, "sample_invoice.html");
-  const xmlPath = path.join(templatesDir, "sample_invoice.xml");
-  await fs.writeFile(htmlPath, SAMPLE_INVOICE_HTML);
-  await fs.writeFile(xmlPath, SAMPLE_INVOICE_XML);
+  // Upload sample templates to Supabase Storage (bucket "uploads", prefix "templates/").
+  const { writeFile: storageWrite, STORAGE } = await import("../src/lib/storage/local");
+  const htmlKey = await storageWrite(STORAGE.templates, "sample_invoice.html", SAMPLE_INVOICE_HTML);
+  const xmlKey = await storageWrite(STORAGE.templates, "sample_invoice.xml", SAMPLE_INVOICE_XML);
 
   const htmlTpl = await prisma.reportTemplate.findFirst({ where: { reportName: "Standard Invoice (HTML)" } });
   if (!htmlTpl) {
@@ -276,13 +267,15 @@ async function main() {
         reportType: "invoice",
         templateType: "HTML",
         fileNameFormula: "invoice_{{invoice_number}}_{{customer_name}}_{{today}}",
-        templatePath: htmlPath,
+        templatePath: htmlKey,
         originalFileName: "sample_invoice.html",
         version: 1,
         isActive: true,
         description: "Production-ready invoice with header, line items, totals, and tax calculation.",
       },
     });
+  } else {
+    await prisma.reportTemplate.update({ where: { id: htmlTpl.id }, data: { templatePath: htmlKey } });
   }
   const xmlTpl = await prisma.reportTemplate.findFirst({ where: { reportName: "Invoice Export (XML)" } });
   if (!xmlTpl) {
@@ -292,13 +285,15 @@ async function main() {
         reportType: "invoice",
         templateType: "XML",
         fileNameFormula: "invoice_{{invoice_number}}_{{today}}",
-        templatePath: xmlPath,
+        templatePath: xmlKey,
         originalFileName: "sample_invoice.xml",
         version: 1,
         isActive: true,
         description: "Structured XML export for downstream systems and e-invoicing.",
       },
     });
+  } else {
+    await prisma.reportTemplate.update({ where: { id: xmlTpl.id }, data: { templatePath: xmlKey } });
   }
 
   // ---- SAMPLE CUSTOMER ----

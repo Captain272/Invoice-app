@@ -1,7 +1,6 @@
-import fs from "node:fs/promises";
 import { prisma } from "@/lib/prisma";
 import { renderTemplate, renderFileName } from "@/lib/template-engine/render";
-import { STORAGE, writeFile } from "@/lib/storage/local";
+import { STORAGE, writeFile, readFile, toDataUrl } from "@/lib/storage/local";
 import { htmlToPdf } from "./pdf";
 import { convertToPdfA3 } from "./pdfa3";
 import { logAudit } from "@/lib/audit";
@@ -91,7 +90,7 @@ export async function generateDocument(input: GenerateInput) {
       : null,
     company_name: company?.companyName ?? null,
     company_logo: company?.logoUrl
-      ? `<img src="${company.logoUrl}" alt="${company.companyName}" style="max-height:80px" />`
+      ? `<img src="${await toDataUrl(company.logoUrl).catch(() => company.logoUrl)}" alt="${company.companyName}" style="max-height:80px" />`
       : "",
     ...companyFields,
     invoice: invoice
@@ -118,8 +117,9 @@ export async function generateDocument(input: GenerateInput) {
     generated_at: new Date().toISOString(),
   };
 
-  // Read template file
-  const templateContent = await fs.readFile(template.templatePath, "utf-8");
+  // Read template file (from Supabase Storage)
+  const templateBuf = await readFile(template.templatePath);
+  const templateContent = templateBuf.toString("utf-8");
   const rendered = renderTemplate(templateContent, data, { format: template.templateType });
 
   // Filename
