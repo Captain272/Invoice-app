@@ -2,7 +2,8 @@
 
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Upload, Trash2, Power, FileCode, FileText, Plus, Download } from "lucide-react";
+import { Upload, Trash2, FileCode, FileText, Plus, Download } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -94,17 +95,20 @@ export function ReportMappingsTab({ templates, readonly }: { templates: Template
                     <div><span className="font-medium text-foreground/70">Uploaded:</span> {formatDateTime(t.createdAt)}</div>
                   </div>
                 </div>
-                <div className="flex gap-1 shrink-0">
+                <div className="flex items-center gap-3 shrink-0">
+                  {!readonly && (
+                    <label className="inline-flex items-center gap-2 cursor-pointer" title={t.isActive ? "Active — toggle to deactivate" : "Inactive — toggle to activate"}>
+                      <Switch checked={t.isActive} onCheckedChange={() => onToggle(t)} disabled={isPending} />
+                      <span className="text-xs text-muted-foreground">{t.isActive ? "Active" : "Inactive"}</span>
+                    </label>
+                  )}
                   <Button size="icon" variant="ghost" asChild title="Download template">
                     <a href={`/api/templates/${t.id}/download`} download={t.originalFileName}>
                       <Download className="h-4 w-4" />
                     </a>
                   </Button>
                   {!readonly && (
-                    <>
-                      <Button size="icon" variant="ghost" onClick={() => onToggle(t)} disabled={isPending}><Power className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" onClick={() => onDelete(t)} disabled={isPending}><Trash2 className="h-4 w-4" /></Button>
-                    </>
+                    <Button size="icon" variant="ghost" onClick={() => onDelete(t)} disabled={isPending} title="Delete template"><Trash2 className="h-4 w-4" /></Button>
                   )}
                 </div>
               </div>

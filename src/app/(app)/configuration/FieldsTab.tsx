@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, GripVertical, Power } from "lucide-react";
+import { Plus, Pencil, Trash2, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -148,13 +148,21 @@ export function FieldsTab({
                     <td className="p-3"><Badge variant="outline">{f.type}</Badge></td>
                     <td className="p-3 text-muted-foreground">{f.optionMapper?.label ?? "—"}</td>
                     <td className="p-3">{f.required ? <Badge variant="amber">Required</Badge> : <span className="text-muted-foreground">—</span>}</td>
-                    <td className="p-3">{f.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</td>
+                    <td className="p-3">
+                      <label className="inline-flex items-center gap-2 cursor-pointer" title={f.isSystem && f.required ? "Required system field — cannot be deactivated" : f.isActive ? "Active — toggle to deactivate" : "Inactive — toggle to activate"}>
+                        <Switch
+                          checked={f.isActive}
+                          onCheckedChange={() => onToggle(f)}
+                          disabled={readonly || isPending || (f.isSystem && f.required)}
+                        />
+                        <span className="text-xs text-muted-foreground">{f.isActive ? "Active" : "Inactive"}</span>
+                      </label>
+                    </td>
                     <td className="p-3 text-right">
                       {!readonly && (
                         <div className="inline-flex gap-1">
-                          <Button size="icon" variant="ghost" onClick={() => onToggle(f)} disabled={isPending || (f.isSystem && f.required)} title={f.isSystem && f.required ? "Required system field — cannot be deactivated" : ""}><Power className="h-4 w-4" /></Button>
-                          <Button size="icon" variant="ghost" onClick={() => openEdit(f)}><Pencil className="h-4 w-4" /></Button>
-                          <Button size="icon" variant="ghost" onClick={() => onDelete(f)} disabled={isPending || f.isSystem} title={f.isSystem ? "System fields cannot be deleted" : ""}><Trash2 className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => openEdit(f)} title="Edit field"><Pencil className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => onDelete(f)} disabled={isPending || f.isSystem} title={f.isSystem ? "System fields cannot be deleted" : "Delete field"}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       )}
                     </td>
