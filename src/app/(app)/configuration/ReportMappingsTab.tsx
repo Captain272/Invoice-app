@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Upload, Trash2, Power, FileCode, FileText, Plus } from "lucide-react";
+import { Upload, Trash2, Power, FileCode, FileText, Plus, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -94,12 +94,19 @@ export function ReportMappingsTab({ templates, readonly }: { templates: Template
                     <div><span className="font-medium text-foreground/70">Uploaded:</span> {formatDateTime(t.createdAt)}</div>
                   </div>
                 </div>
-                {!readonly && (
-                  <div className="flex gap-1 shrink-0">
-                    <Button size="icon" variant="ghost" onClick={() => onToggle(t)} disabled={isPending}><Power className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => onDelete(t)} disabled={isPending}><Trash2 className="h-4 w-4" /></Button>
-                  </div>
-                )}
+                <div className="flex gap-1 shrink-0">
+                  <Button size="icon" variant="ghost" asChild title="Download template">
+                    <a href={`/api/templates/${t.id}/download`} download={t.originalFileName}>
+                      <Download className="h-4 w-4" />
+                    </a>
+                  </Button>
+                  {!readonly && (
+                    <>
+                      <Button size="icon" variant="ghost" onClick={() => onToggle(t)} disabled={isPending}><Power className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" onClick={() => onDelete(t)} disabled={isPending}><Trash2 className="h-4 w-4" /></Button>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>
