@@ -30,6 +30,7 @@ export type FieldRow = {
   helpText?: string | null;
   displayOrder: number;
   isActive: boolean;
+  isSystem?: boolean;
 };
 
 const FIELD_TYPES: FieldType[] = [
@@ -137,7 +138,12 @@ export function FieldsTab({
               <tbody className="divide-y">
                 {fields.map((f) => (
                   <tr key={f.id} className="hover:bg-muted/30">
-                    <td className="p-3 font-mono text-xs">{f.key}</td>
+                    <td className="p-3 font-mono text-xs">
+                      <span className="inline-flex items-center gap-2">
+                        {f.key}
+                        {f.isSystem && <Badge variant="outline" className="text-[10px]">system</Badge>}
+                      </span>
+                    </td>
                     <td className="p-3 font-medium">{f.name}</td>
                     <td className="p-3"><Badge variant="outline">{f.type}</Badge></td>
                     <td className="p-3 text-muted-foreground">{f.optionMapper?.label ?? "—"}</td>
@@ -146,9 +152,9 @@ export function FieldsTab({
                     <td className="p-3 text-right">
                       {!readonly && (
                         <div className="inline-flex gap-1">
-                          <Button size="icon" variant="ghost" onClick={() => onToggle(f)} disabled={isPending}><Power className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => onToggle(f)} disabled={isPending || (f.isSystem && f.required)} title={f.isSystem && f.required ? "Required system field — cannot be deactivated" : ""}><Power className="h-4 w-4" /></Button>
                           <Button size="icon" variant="ghost" onClick={() => openEdit(f)}><Pencil className="h-4 w-4" /></Button>
-                          <Button size="icon" variant="ghost" onClick={() => onDelete(f)} disabled={isPending}><Trash2 className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => onDelete(f)} disabled={isPending || f.isSystem} title={f.isSystem ? "System fields cannot be deleted" : ""}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       )}
                     </td>
@@ -217,7 +223,11 @@ function FieldDialog({
               placeholder="customer_email"
               className="font-mono text-xs mt-1"
             />
-            <p className="mt-1 text-xs text-muted-foreground">snake_case, unique. Used in templates: <code>{`{{${values.key || "key"}}}`}</code></p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {initial?.isSystem
+                ? "System field — key and type are locked."
+                : <>snake_case, unique. Used in templates: <code>{`{{${values.key || "key"}}}`}</code></>}
+            </p>
           </div>
           <div>
             <Label>Display Name</Label>
@@ -228,7 +238,7 @@ function FieldDialog({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Type</Label>
-            <Select value={values.type} onValueChange={(v) => setValues({ ...values, type: v as FieldType })}>
+            <Select value={values.type} disabled={initial?.isSystem} onValueChange={(v) => setValues({ ...values, type: v as FieldType })}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {FIELD_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}

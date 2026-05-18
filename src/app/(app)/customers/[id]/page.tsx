@@ -12,7 +12,7 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
       where: { id },
       include: { fieldValues: true, invoices: { orderBy: { updatedAt: "desc" }, take: 1, include: { lineItems: { orderBy: { displayOrder: "asc" } } } }, generatedDocuments: { orderBy: { createdAt: "desc" } } },
     }),
-    prisma.customerFieldConfig.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" }, include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } } }),
+    prisma.customerFieldConfig.findMany({ where: { isActive: true, isSystem: false }, orderBy: { displayOrder: "asc" }, include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } } }),
     prisma.optionMapper.findMany({ include: { values: { orderBy: { displayOrder: "asc" } } } }),
     prisma.reportTemplate.findMany({ where: { isActive: true } }),
   ]);

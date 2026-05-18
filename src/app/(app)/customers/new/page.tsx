@@ -5,7 +5,7 @@ import { CustomerEditor } from "../[id]/CustomerEditor";
 export default async function NewCustomerPage() {
   const [fieldConfigs, mappers, templates] = await Promise.all([
     prisma.customerFieldConfig.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isSystem: false },
       orderBy: { displayOrder: "asc" },
       include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } },
     }),

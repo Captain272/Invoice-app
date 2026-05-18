@@ -18,7 +18,7 @@ export async function createCustomer(input: {
   const dynamic = dynamicFieldsSchema.parse(input.dynamic ?? {});
 
   // Validate required dynamic fields
-  const configs = await prisma.customerFieldConfig.findMany({ where: { isActive: true } });
+  const configs = await prisma.customerFieldConfig.findMany({ where: { isActive: true, isSystem: false } });
   for (const fc of configs) {
     if (fc.required) {
       const v = dynamic[fc.key];
@@ -69,7 +69,7 @@ export async function updateCustomer(id: string, input: {
   const core = customerCoreSchema.parse(input.core);
   const dynamic = dynamicFieldsSchema.parse(input.dynamic ?? {});
 
-  const configs = await prisma.customerFieldConfig.findMany({ where: { isActive: true } });
+  const configs = await prisma.customerFieldConfig.findMany({ where: { isActive: true, isSystem: false } });
   for (const fc of configs) {
     if (fc.required) {
       const v = dynamic[fc.key];

@@ -8,6 +8,8 @@ import { CustomerFieldsTab } from "./CustomerFieldsTab";
 import { CompanyFieldsTab } from "./CompanyFieldsTab";
 import { OptionMappersTab } from "./OptionMappersTab";
 import { ReportMappingsTab } from "./ReportMappingsTab";
+import { InvoiceDetailsTab } from "./InvoiceDetailsTab";
+import { ensureSystemConfig } from "@/server/actions/system-config";
 
 export default async function ConfigurationPage({
   searchParams,
@@ -18,11 +20,15 @@ export default async function ConfigurationPage({
   if (!session?.user || !can(session.user.role, "config:read")) redirect("/dashboard");
   const readonly = !can(session.user.role, "config:write");
 
-  const [customerFields, companyFields, optionMappers, templates] = await Promise.all([
+  await ensureSystemConfig();
+
+  const [customerFields, companyFields, optionMappers, templates, invoiceFields, invoiceVariables] = await Promise.all([
     prisma.customerFieldConfig.findMany({ orderBy: { displayOrder: "asc" }, include: { optionMapper: true } }),
     prisma.companyFieldConfig.findMany({ orderBy: { displayOrder: "asc" }, include: { optionMapper: true } }),
     prisma.optionMapper.findMany({ include: { values: { orderBy: { displayOrder: "asc" } }, _count: { select: { customerFields: true, companyFields: true } } }, orderBy: { label: "asc" } }),
     prisma.reportTemplate.findMany({ orderBy: { createdAt: "desc" } }),
+    prisma.invoiceFieldConfig.findMany({ orderBy: { displayOrder: "asc" }, include: { optionMapper: true } }),
+    prisma.invoiceVariable.findMany({ orderBy: [{ scope: "asc" }, { displayOrder: "asc" }] }),
   ]);
 
   const sp = await searchParams;
@@ -39,6 +45,7 @@ export default async function ConfigurationPage({
       <Tabs defaultValue={initialTab} className="space-y-4">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="customer-fields">Customer Fields</TabsTrigger>
+          <TabsTrigger value="invoice-details">Invoice Details</TabsTrigger>
           <TabsTrigger value="company-fields">Company Fields</TabsTrigger>
           <TabsTrigger value="option-mappers">Option Mappers</TabsTrigger>
           <TabsTrigger value="reports">Report Mappings</TabsTrigger>
@@ -46,6 +53,9 @@ export default async function ConfigurationPage({
 
         <TabsContent value="customer-fields">
           <CustomerFieldsTab fields={customerFields} mappers={optionMappers} readonly={readonly} />
+        </TabsContent>
+        <TabsContent value="invoice-details">
+          <InvoiceDetailsTab fields={invoiceFields} variables={invoiceVariables} mappers={optionMappers} readonly={readonly} />
         </TabsContent>
         <TabsContent value="company-fields">
           <CompanyFieldsTab fields={companyFields} mappers={optionMappers} readonly={readonly} />

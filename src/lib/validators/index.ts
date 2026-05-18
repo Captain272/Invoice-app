@@ -56,7 +56,7 @@ export const reportTemplateSchema = z.object({
 
 export const lineItemSchema = z.object({
   id: z.string().optional(),
-  pos: z.number().int(),
+  pos: z.number(),
   key: z.string().optional().nullable(),
   label: z.string().optional().nullable(),
   description: z.string().optional().nullable(),

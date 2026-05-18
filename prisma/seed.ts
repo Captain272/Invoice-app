@@ -208,6 +208,23 @@ async function main() {
   });
 
   // ---- CUSTOMER FIELD CONFIGS ----
+  // System (hardcoded-column) customer fields, surfaced in Configuration so they
+  // can be relabeled / marked required, but not renamed or deleted.
+  const customerSystemFields = [
+    { key: "name", name: "Name", type: "text" as const, displayOrder: -50, required: true, systemColumn: "name" },
+    { key: "email", name: "Email", type: "email" as const, displayOrder: -40, systemColumn: "email" },
+    { key: "phone", name: "Phone", type: "phone" as const, displayOrder: -30, systemColumn: "phone" },
+    { key: "status", name: "Status", type: "select" as const, displayOrder: -20, systemColumn: "status" },
+    { key: "address", name: "Address", type: "textarea" as const, displayOrder: -10, systemColumn: "address" },
+  ];
+  for (const f of customerSystemFields) {
+    await prisma.customerFieldConfig.upsert({
+      where: { key: f.key },
+      update: { isSystem: true, systemColumn: f.systemColumn, type: f.type },
+      create: { ...f, isSystem: true, isActive: true, required: f.required ?? false },
+    });
+  }
+
   const customerFields = [
     { key: "vat_number", name: "VAT Number", type: "text" as const, displayOrder: 1, placeholder: "DE123456789", helpText: "EU VAT identifier" },
     { key: "industry", name: "Industry", type: "text" as const, displayOrder: 2 },
@@ -218,6 +235,49 @@ async function main() {
       where: { key: f.key },
       update: {},
       create: { ...f, required: false, isActive: true },
+    });
+  }
+
+  // ---- INVOICE FIELD CONFIGS (system) ----
+  const invoiceSystemFields = [
+    { key: "invoice_number", name: "Invoice number", type: "text" as const, displayOrder: -90, required: true, systemColumn: "invoiceNumber" },
+    { key: "quote_number", name: "Quote number", type: "text" as const, displayOrder: -80, systemColumn: "quoteNumber" },
+    { key: "invoice_date", name: "Invoice date", type: "date" as const, displayOrder: -70, systemColumn: "invoiceDate" },
+    { key: "payment_terms", name: "Payment terms", type: "text" as const, displayOrder: -60, systemColumn: "paymentTerms", placeholder: "Net 30" },
+    { key: "performance_period_start", name: "Performance period start", type: "date" as const, displayOrder: -50, systemColumn: "performancePeriodStart" },
+    { key: "performance_period_end", name: "Performance period end", type: "date" as const, displayOrder: -40, systemColumn: "performancePeriodEnd" },
+    { key: "tax_mode", name: "Tax mode", type: "select" as const, displayOrder: -30, systemColumn: "taxMode" },
+    { key: "currency", name: "Currency", type: "text" as const, displayOrder: -20, systemColumn: "currency", defaultValue: "EUR" },
+    { key: "notes", name: "Notes", type: "textarea" as const, displayOrder: -10, systemColumn: "notes" },
+  ];
+  for (const f of invoiceSystemFields) {
+    await prisma.invoiceFieldConfig.upsert({
+      where: { key: f.key },
+      update: { isSystem: true, systemColumn: f.systemColumn },
+      create: { ...f, isSystem: true, isActive: true, required: f.required ?? false },
+    });
+  }
+
+  // ---- INVOICE VARIABLES (line item / placeholder defaults) ----
+  const invoiceVariables = [
+    { scope: "line_item", key: "pos", label: "POS", displayOrder: 0, description: "Line item position" },
+    { scope: "line_item", key: "key", label: "Key", displayOrder: 1 },
+    { scope: "line_item", key: "label", label: "Label", displayOrder: 2 },
+    { scope: "line_item", key: "description", label: "Description", displayOrder: 3 },
+    { scope: "line_item", key: "quantity", label: "Quantity", displayOrder: 4 },
+    { scope: "line_item", key: "unit", label: "Unit", displayOrder: 5 },
+    { scope: "line_item", key: "unit_price", label: "Unit price", displayOrder: 6 },
+    { scope: "line_item", key: "tax", label: "Tax", displayOrder: 7 },
+    { scope: "line_item", key: "amount", label: "Amount", displayOrder: 8 },
+    { scope: "placeholder", key: "today", label: "Today's date", displayOrder: 0, description: "Auto-filled at generation time" },
+    { scope: "placeholder", key: "customer_name", label: "Customer name", displayOrder: 1 },
+    { scope: "placeholder", key: "company_name", label: "Company name", displayOrder: 2 },
+  ];
+  for (const v of invoiceVariables) {
+    await prisma.invoiceVariable.upsert({
+      where: { scope_key: { scope: v.scope, key: v.key } },
+      update: {},
+      create: { ...v, isActive: true },
     });
   }
 

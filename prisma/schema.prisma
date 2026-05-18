@@ -130,6 +130,8 @@ model CustomerFieldConfig {
   helpText       String?
   displayOrder   Int                   @default(0)
   isActive       Boolean               @default(true)
+  isSystem       Boolean               @default(false)
+  systemColumn   String?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
   values         CustomerFieldValue[]
@@ -210,6 +212,41 @@ model OptionMapper {
   values           OptionMapperValue[]
   customerFields   CustomerFieldConfig[]
   companyFields    CompanyFieldConfig[]
+  invoiceFields    InvoiceFieldConfig[]
+}
+
+model InvoiceFieldConfig {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  name           String
+  type           FieldType
+  optionMapperId String?
+  optionMapper   OptionMapper? @relation(fields: [optionMapperId], references: [id])
+  required       Boolean  @default(false)
+  defaultValue   String?
+  placeholder    String?
+  helpText       String?
+  displayOrder   Int      @default(0)
+  isActive       Boolean  @default(true)
+  isSystem       Boolean  @default(false)
+  systemColumn   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model InvoiceVariable {
+  id           String   @id @default(cuid())
+  scope        String   @default("invoice")
+  key          String
+  label        String
+  defaultValue String?
+  description  String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([scope, key])
 }
 
 model OptionMapperValue {
@@ -249,7 +286,7 @@ model InvoiceLineItem {
   id           String   @id @default(cuid())
   invoiceId    String
   invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  pos          Int
+  pos          Float
   key          String?
   label        String?
   description  String?

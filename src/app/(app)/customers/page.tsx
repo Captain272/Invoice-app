@@ -76,20 +76,35 @@ export default async function CustomersPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {customers.map((c) => (
-                    <tr key={c.id} className="hover:bg-muted/30 cursor-pointer">
-                      <td className="p-3 font-medium">
-                        <Link href={`/customers/${c.id}`} className="hover:underline">{c.name}</Link>
-                      </td>
-                      <td className="p-3 text-muted-foreground">{c.email ?? "—"}</td>
-                      <td className="p-3 text-muted-foreground">{c.phone ?? "—"}</td>
-                      <td className="p-3">
-                        <Badge variant={c.status === "ACTIVE" ? "success" : "secondary"}>{c.status.toLowerCase()}</Badge>
-                      </td>
-                      <td className="p-3 text-muted-foreground">{c.generatedDocuments[0] ? formatDateTime(c.generatedDocuments[0].createdAt) : "—"}</td>
-                      <td className="p-3 text-muted-foreground">{formatDateTime(c.createdAt)}</td>
-                    </tr>
-                  ))}
+                  {customers.map((c) => {
+                    const href = `/customers/${c.id}`;
+                    const cell = "p-0";
+                    const link = "block px-3 py-3 w-full";
+                    return (
+                      <tr key={c.id} className="hover:bg-muted/30">
+                        <td className={cell}>
+                          <Link href={href} className={`${link} font-medium`}>{c.name}</Link>
+                        </td>
+                        <td className={cell}>
+                          <Link href={href} className={`${link} text-muted-foreground`}>{c.email ?? "—"}</Link>
+                        </td>
+                        <td className={cell}>
+                          <Link href={href} className={`${link} text-muted-foreground`}>{c.phone ?? "—"}</Link>
+                        </td>
+                        <td className={cell}>
+                          <Link href={href} className={link}>
+                            <Badge variant={c.status === "ACTIVE" ? "success" : "secondary"}>{c.status.toLowerCase()}</Badge>
+                          </Link>
+                        </td>
+                        <td className={cell}>
+                          <Link href={href} className={`${link} text-muted-foreground`}>{c.generatedDocuments[0] ? formatDateTime(c.generatedDocuments[0].createdAt) : "—"}</Link>
+                        </td>
+                        <td className={cell}>
+                          <Link href={href} className={`${link} text-muted-foreground`}>{formatDateTime(c.createdAt)}</Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

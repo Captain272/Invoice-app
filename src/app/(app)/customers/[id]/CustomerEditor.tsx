@@ -31,6 +31,16 @@ const TAX_DEFAULT = [
   { label: "§13b", value: "13b" },
 ];
 
+// Accept decimals with either dot or comma as separator (e.g. "1.5", "1,5", "10.25").
+// Returns null for empty/invalid input so callers can apply their own fallback.
+function parseLocaleNumber(raw: string | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null;
+  const trimmed = String(raw).trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed.replace(/,/g, "."));
+  return Number.isFinite(n) ? n : null;
+}
+
 export function CustomerEditor({
   customer,
   fieldConfigs,
@@ -81,16 +91,16 @@ export function CustomerEditor({
   });
 
   type LineItem = {
-    pos: number; key: string; label: string; description: string;
+    pos: string; key: string; label: string; description: string;
     quantity: string; unit: string; unitPrice: string; taxType: string; amount: string; value: string;
   };
   const initialItems: LineItem[] = invoice?.lineItems.length
     ? invoice.lineItems.map((li) => ({
-        pos: li.pos, key: li.key ?? "", label: li.label ?? "", description: li.description ?? "",
+        pos: String(li.pos), key: li.key ?? "", label: li.label ?? "", description: li.description ?? "",
         quantity: String(li.quantity), unit: li.unit ?? "", unitPrice: String(li.unitPrice),
         taxType: li.taxType ?? "", amount: String(li.amount), value: li.value ?? "",
       }))
-    : [{ pos: 1, key: "", label: "", description: "", quantity: "1", unit: "", unitPrice: "0", taxType: "", amount: "0", value: "" }];
+    : [{ pos: "1", key: "", label: "", description: "", quantity: "1", unit: "", unitPrice: "0", taxType: "", amount: "0", value: "" }];
   const [items, setItems] = useState<LineItem[]>(initialItems);
 
   const [invoiceSubTab, setInvoiceSubTab] = useState<"header" | "items">("header");
@@ -142,15 +152,15 @@ export function CustomerEditor({
           invoiceId: invoice?.id ?? null,
           header,
           lineItems: items.map((li, i) => ({
-            pos: li.pos ?? i + 1,
+            pos: parseLocaleNumber(li.pos) ?? i + 1,
             key: li.key || null,
             label: li.label || null,
             description: li.description || null,
-            quantity: Number(li.quantity) || 0,
+            quantity: parseLocaleNumber(li.quantity) ?? 0,
             unit: li.unit || null,
-            unitPrice: Number(li.unitPrice) || 0,
+            unitPrice: parseLocaleNumber(li.unitPrice) ?? 0,
             taxType: li.taxType || null,
-            amount: Number(li.amount) || Number(li.quantity) * Number(li.unitPrice) || 0,
+            amount: parseLocaleNumber(li.amount) ?? (parseLocaleNumber(li.quantity) ?? 0) * (parseLocaleNumber(li.unitPrice) ?? 0),
             value: li.value || null,
           })),
         });
@@ -167,7 +177,7 @@ export function CustomerEditor({
   function addItem() {
     setItems([
       ...items,
-      { pos: items.length + 1, key: "", label: "", description: "", quantity: "1", unit: "", unitPrice: "0", taxType: "", amount: "0", value: "" },
+      { pos: String(items.length + 1), key: "", label: "", description: "", quantity: "1", unit: "", unitPrice: "0", taxType: "", amount: "0", value: "" },
     ]);
   }
 
@@ -175,15 +185,14 @@ export function CustomerEditor({
     setItems(items.map((it, idx) => {
       if (idx !== i) return it;
       const next = { ...it, ...patch };
-      // Auto-compute amount if not manually set
-      const q = Number(next.quantity), p = Number(next.unitPrice);
-      if (Number.isFinite(q) && Number.isFinite(p)) next.amount = String(+(q * p).toFixed(2));
+      const q = parseLocaleNumber(next.quantity), p = parseLocaleNumber(next.unitPrice);
+      if (q !== null && p !== null) next.amount = String(+(q * p).toFixed(2));
       return next;
     }));
   }
 
   function removeItem(i: number) {
-    setItems(items.filter((_, idx) => idx !== i).map((it, idx) => ({ ...it, pos: idx + 1 })));
+    setItems(items.filter((_, idx) => idx !== i).map((it, idx) => ({ ...it, pos: String(idx + 1) })));
   }
 
   return (
@@ -298,7 +307,7 @@ export function CustomerEditor({
                     <tbody className="divide-y">
                       {items.map((it, i) => (
                         <tr key={i}>
-                          <td className="p-1"><Input value={it.pos} onChange={(e) => updateItem(i, { pos: Number(e.target.value) || i + 1 })} className="h-8 w-14" /></td>
+                          <td className="p-1"><Input inputMode="decimal" value={it.pos} onChange={(e) => updateItem(i, { pos: e.target.value })} className="h-8 w-16" /></td>
                           <td className="p-1"><Input value={it.key} onChange={(e) => updateItem(i, { key: e.target.value })} placeholder="line_key" className="h-8 font-mono text-xs" /></td>
                           <td className="p-1"><Input value={it.label} onChange={(e) => updateItem(i, { label: e.target.value })} className="h-8" /></td>
                           <td className="p-1"><Input value={it.description} onChange={(e) => updateItem(i, { description: e.target.value })} className="h-8" placeholder="e.g. Consulting for {{customer_name}}" /></td>
@@ -408,6 +417,17 @@ function GenerateDialog({
       const res = await runGenerateDocument({ customerId, invoiceId, reportTemplateId: templateId, exportFormat: format });
       if (res.ok) {
         if (res.warning) toast.warning(res.warning);
+        // Trigger immediate browser download. The file is already persisted in
+        // GeneratedDocument (per-customer + global Documents) — this just hands
+        // the user a local copy without an extra click.
+        if (res.documentId) {
+          const a = document.createElement("a");
+          a.href = `/api/documents/${res.documentId}/download`;
+          a.rel = "noopener";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }
         onDone(res.documentId);
       } else {
         toast.error(res.error);

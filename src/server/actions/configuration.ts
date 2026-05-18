@@ -29,7 +29,15 @@ export async function createCustomerField(input: z.input<typeof fieldConfigSchem
 
 export async function updateCustomerField(id: string, input: Partial<z.input<typeof fieldConfigSchema>>) {
   const session = await requirePerm("config:write");
+  const existing = await prisma.customerFieldConfig.findUnique({ where: { id } });
+  if (!existing) throw new Error("Field not found");
   const data = fieldConfigSchema.partial().parse(input);
+  // System fields: lock key/type/optionMapper/systemColumn; everything else is editable.
+  if (existing.isSystem) {
+    delete (data as Record<string, unknown>).key;
+    delete (data as Record<string, unknown>).type;
+    delete (data as Record<string, unknown>).optionMapperId;
+  }
   const f = await prisma.customerFieldConfig.update({ where: { id }, data });
   await logAudit({ userId: session.user.id, action: "FIELD_UPDATED", entityType: "CustomerFieldConfig", entityId: id });
   revalidatePath("/configuration");
@@ -38,6 +46,9 @@ export async function updateCustomerField(id: string, input: Partial<z.input<typ
 
 export async function deleteCustomerField(id: string) {
   const session = await requirePerm("config:write");
+  const existing = await prisma.customerFieldConfig.findUnique({ where: { id } });
+  if (!existing) throw new Error("Field not found");
+  if (existing.isSystem) throw new Error("System fields cannot be deleted — deactivate them instead");
   const used = await prisma.customerFieldValue.count({ where: { fieldConfigId: id } });
   if (used > 0) throw new Error("Field is in use — deactivate instead of deleting");
   await prisma.customerFieldConfig.delete({ where: { id } });
@@ -201,5 +212,82 @@ export async function toggleReportTemplate(id: string, isActive: boolean) {
   const session = await requirePerm("config:write");
   await prisma.reportTemplate.update({ where: { id }, data: { isActive } });
   await logAudit({ userId: session.user.id, action: "TEMPLATE_UPDATED", entityType: "ReportTemplate", entityId: id, metadata: { isActive } });
+  revalidatePath("/configuration");
+}
+
+// ============ INVOICE FIELDS ============
+
+export async function createInvoiceField(input: z.input<typeof fieldConfigSchema>) {
+  const session = await requirePerm("config:write");
+  const data = fieldConfigSchema.parse(input);
+  const existing = await prisma.invoiceFieldConfig.findUnique({ where: { key: data.key } });
+  if (existing) throw new Error(`Key "${data.key}" already exists`);
+  const f = await prisma.invoiceFieldConfig.create({ data });
+  await logAudit({ userId: session.user.id, action: "FIELD_CREATED", entityType: "InvoiceFieldConfig", entityId: f.id, metadata: { key: data.key } });
+  revalidatePath("/configuration");
+  return f;
+}
+
+export async function updateInvoiceField(id: string, input: Partial<z.input<typeof fieldConfigSchema>>) {
+  const session = await requirePerm("config:write");
+  const existing = await prisma.invoiceFieldConfig.findUnique({ where: { id } });
+  if (!existing) throw new Error("Field not found");
+  const data = fieldConfigSchema.partial().parse(input);
+  if (existing.isSystem) {
+    delete (data as Record<string, unknown>).key;
+    delete (data as Record<string, unknown>).type;
+    delete (data as Record<string, unknown>).optionMapperId;
+  }
+  const f = await prisma.invoiceFieldConfig.update({ where: { id }, data });
+  await logAudit({ userId: session.user.id, action: "FIELD_UPDATED", entityType: "InvoiceFieldConfig", entityId: id });
+  revalidatePath("/configuration");
+  return f;
+}
+
+export async function deleteInvoiceField(id: string) {
+  const session = await requirePerm("config:write");
+  const existing = await prisma.invoiceFieldConfig.findUnique({ where: { id } });
+  if (!existing) throw new Error("Field not found");
+  if (existing.isSystem) throw new Error("System fields cannot be deleted — deactivate them instead");
+  await prisma.invoiceFieldConfig.delete({ where: { id } });
+  await logAudit({ userId: session.user.id, action: "FIELD_DELETED", entityType: "InvoiceFieldConfig", entityId: id });
+  revalidatePath("/configuration");
+}
+
+// ============ INVOICE VARIABLES ============
+
+const invoiceVariableSchema = z.object({
+  scope: z.enum(["invoice", "line_item", "placeholder", "report"]),
+  key: z.string().min(1).max(80).regex(/^[a-z][a-z0-9_]*$/, "snake_case key required"),
+  label: z.string().min(1).max(160),
+  defaultValue: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  displayOrder: z.number().int().default(0),
+  isActive: z.boolean().default(true),
+});
+
+export async function createInvoiceVariable(input: z.input<typeof invoiceVariableSchema>) {
+  await requirePerm("config:write");
+  const data = invoiceVariableSchema.parse(input);
+  const existing = await prisma.invoiceVariable.findUnique({ where: { scope_key: { scope: data.scope, key: data.key } } });
+  if (existing) throw new Error(`Variable "${data.key}" already exists in scope "${data.scope}"`);
+  const v = await prisma.invoiceVariable.create({ data });
+  revalidatePath("/configuration");
+  return v;
+}
+
+export async function updateInvoiceVariable(id: string, input: Partial<z.input<typeof invoiceVariableSchema>>) {
+  await requirePerm("config:write");
+  const data = invoiceVariableSchema.partial().parse(input);
+  delete (data as Record<string, unknown>).scope;
+  delete (data as Record<string, unknown>).key;
+  const v = await prisma.invoiceVariable.update({ where: { id }, data });
+  revalidatePath("/configuration");
+  return v;
+}
+
+export async function deleteInvoiceVariable(id: string) {
+  await requirePerm("config:write");
+  await prisma.invoiceVariable.delete({ where: { id } });
   revalidatePath("/configuration");
 }
