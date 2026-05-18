@@ -3,7 +3,6 @@ import { getSession } from "@/server/actions/auth-helper";
 import { prisma } from "@/lib/prisma";
 import { can } from "@/lib/permissions";
 import { readFile } from "@/lib/storage/local";
-import { logAudit } from "@/lib/audit";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -20,13 +19,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   } catch {
     return new NextResponse("File missing", { status: 404 });
   }
-
-  await logAudit({
-    userId: session.user.id,
-    action: "TEMPLATE_DOWNLOADED",
-    entityType: "ReportTemplate",
-    entityId: id,
-  });
 
   const ext = tpl.originalFileName.split(".").pop()?.toLowerCase();
   const mime =
