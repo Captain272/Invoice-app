@@ -1,11 +1,23 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CustomerEditor } from "../[id]/CustomerEditor";
+import { ensureSystemConfig } from "@/server/actions/system-config";
 
 export default async function NewCustomerPage() {
-  const [fieldConfigs, mappers, templates] = await Promise.all([
+  await ensureSystemConfig();
+  const [customerSystemFields, customerCustomFields, invoiceFields, mappers, templates] = await Promise.all([
+    prisma.customerFieldConfig.findMany({
+      where: { isActive: true, isSystem: true },
+      orderBy: { displayOrder: "asc" },
+      include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } },
+    }),
     prisma.customerFieldConfig.findMany({
       where: { isActive: true, isSystem: false },
+      orderBy: { displayOrder: "asc" },
+      include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } },
+    }),
+    prisma.invoiceFieldConfig.findMany({
+      where: { isActive: true },
       orderBy: { displayOrder: "asc" },
       include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } },
     }),
@@ -26,7 +38,9 @@ export default async function NewCustomerPage() {
       />
       <CustomerEditor
         customer={null}
-        fieldConfigs={fieldConfigs}
+        customerSystemFields={customerSystemFields}
+        customerCustomFields={customerCustomFields}
+        invoiceFields={invoiceFields}
         invoice={null}
         documents={[]}
         templates={templates}

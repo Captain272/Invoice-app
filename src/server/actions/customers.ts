@@ -129,11 +129,22 @@ export async function saveInvoiceForCustomer(input: {
   customerId: string;
   invoiceId?: string | null;
   header: z.input<typeof invoiceHeaderSchema>;
+  dynamic?: Record<string, string | null | undefined>;
   lineItems: z.input<typeof lineItemSchema>[];
 }) {
   const session = await requirePerm("customers:write");
   const h = invoiceHeaderSchema.parse(input.header);
   const items = z.array(lineItemSchema).parse(input.lineItems);
+  const dynamic = dynamicFieldsSchema.parse(input.dynamic ?? {});
+
+  // Validate required custom invoice fields per config.
+  const invoiceCustomConfigs = await prisma.invoiceFieldConfig.findMany({ where: { isActive: true, isSystem: false } });
+  for (const fc of invoiceCustomConfigs) {
+    if (fc.required) {
+      const v = dynamic[fc.key];
+      if (v === undefined || v === null || v === "") throw new Error(`Field "${fc.name}" is required`);
+    }
+  }
 
   const parseDate = (s?: string | null) => (s ? new Date(s) : null);
 
@@ -171,6 +182,16 @@ export async function saveInvoiceForCustomer(input: {
           value: li.value || null,
           displayOrder: idx,
         })),
+      });
+    }
+
+    for (const fc of invoiceCustomConfigs) {
+      const v = dynamic[fc.key];
+      if (v === undefined) continue;
+      await tx.invoiceFieldValue.upsert({
+        where: { invoiceId_fieldConfigId: { invoiceId: inv.id, fieldConfigId: fc.id } },
+        update: { value: v ?? null, key: fc.key },
+        create: { invoiceId: inv.id, fieldConfigId: fc.id, key: fc.key, value: v ?? null },
       });
     }
     return inv;

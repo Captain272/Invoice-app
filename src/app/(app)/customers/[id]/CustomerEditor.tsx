@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowRight, Plus, Trash2, FileText, Download, Sparkles, X } from "lucide-react";
-import type { Customer, CustomerFieldValue, GeneratedDocument, Invoice, InvoiceLineItem, ReportTemplate } from "@prisma/client";
+import type { Customer, CustomerFieldValue, GeneratedDocument, Invoice, InvoiceLineItem, ReportTemplate, InvoiceFieldValue } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,9 @@ import { formatDateTime, formatBytes } from "@/lib/utils";
 import { createCustomer, updateCustomer, saveInvoiceForCustomer } from "@/server/actions/customers";
 import { runGenerateDocument } from "@/server/actions/documents";
 
-type FieldConfig = DynamicField;
-type InvoiceWithItems = (Invoice & { lineItems: InvoiceLineItem[] }) | null;
+type SystemFieldConfig = DynamicField & { systemColumn: string | null; displayOrder: number };
+type CustomFieldConfig = DynamicField & { displayOrder: number };
+type InvoiceWithItems = (Invoice & { lineItems: InvoiceLineItem[]; fieldValues?: InvoiceFieldValue[] }) | null;
 type CustomerWithValues = (Customer & { fieldValues: CustomerFieldValue[] }) | null;
 
 const TAX_DEFAULT = [
@@ -31,8 +32,13 @@ const TAX_DEFAULT = [
   { label: "§13b", value: "13b" },
 ];
 
+const STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "Active" },
+  { value: "INACTIVE", label: "Inactive" },
+  { value: "ARCHIVED", label: "Archived" },
+];
+
 // Accept decimals with either dot or comma as separator (e.g. "1.5", "1,5", "10.25").
-// Returns null for empty/invalid input so callers can apply their own fallback.
 function parseLocaleNumber(raw: string | null | undefined): number | null {
   if (raw === null || raw === undefined) return null;
   const trimmed = String(raw).trim();
@@ -41,16 +47,40 @@ function parseLocaleNumber(raw: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+type CoreState = {
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  status: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+};
+
+type HeaderState = {
+  invoiceNumber: string;
+  quoteNumber: string;
+  invoiceDate: string;
+  performancePeriodStart: string;
+  performancePeriodEnd: string;
+  paymentTerms: string;
+  taxMode: string;
+  currency: string;
+  notes: string;
+};
+
 export function CustomerEditor({
   customer,
-  fieldConfigs,
+  customerSystemFields,
+  customerCustomFields,
+  invoiceFields,
   invoice,
   documents,
   templates,
   taxMapper,
 }: {
   customer: CustomerWithValues;
-  fieldConfigs: FieldConfig[];
+  customerSystemFields: SystemFieldConfig[];
+  customerCustomFields: CustomFieldConfig[];
+  invoiceFields: SystemFieldConfig[];
   invoice: InvoiceWithItems;
   documents: GeneratedDocument[];
   templates: ReportTemplate[];
@@ -59,26 +89,29 @@ export function CustomerEditor({
   const router = useRouter();
   const [tab, setTab] = useState("details");
 
-  // Core
-  const [core, setCore] = useState({
+  const [core, setCore] = useState<CoreState>({
     name: customer?.name ?? "",
     email: customer?.email ?? "",
     phone: customer?.phone ?? "",
     address: customer?.address ?? "",
-    status: (customer?.status ?? "ACTIVE") as "ACTIVE" | "INACTIVE" | "ARCHIVED",
+    status: (customer?.status ?? "ACTIVE") as CoreState["status"],
   });
 
-  // Dynamic field values
-  const initialDynamic: Record<string, string | null> = {};
-  for (const fc of fieldConfigs) {
+  // Custom customer field values (non-system).
+  const initialCustomerDynamic: Record<string, string | null> = {};
+  for (const fc of customerCustomFields) {
     const fv = customer?.fieldValues.find((v) => v.fieldConfigId === fc.id);
-    initialDynamic[fc.key] = fv?.value ?? fc.defaultValue ?? "";
+    initialCustomerDynamic[fc.key] = fv?.value ?? fc.defaultValue ?? "";
   }
-  const [dynamic, setDynamic] = useState(initialDynamic);
-  const [dynamicErrors, setDynamicErrors] = useState<Record<string, string>>({});
+  const [customerDynamic, setCustomerDynamic] = useState(initialCustomerDynamic);
+  const [customerDynamicErrors, setCustomerDynamicErrors] = useState<Record<string, string>>({});
+  const [coreErrors, setCoreErrors] = useState<Record<string, string>>({});
 
-  // Invoice header
-  const [header, setHeader] = useState({
+  // Split invoice fields into system + custom.
+  const invoiceSystemFields = useMemo(() => invoiceFields.filter((f) => f.systemColumn).sort((a, b) => a.displayOrder - b.displayOrder), [invoiceFields]);
+  const invoiceCustomFields = useMemo(() => invoiceFields.filter((f) => !f.systemColumn).sort((a, b) => a.displayOrder - b.displayOrder), [invoiceFields]);
+
+  const [header, setHeader] = useState<HeaderState>({
     invoiceNumber: invoice?.invoiceNumber ?? "",
     quoteNumber: invoice?.quoteNumber ?? "",
     invoiceDate: invoice?.invoiceDate ? invoice.invoiceDate.toISOString().split("T")[0] : "",
@@ -86,9 +119,18 @@ export function CustomerEditor({
     performancePeriodEnd: invoice?.performancePeriodEnd ? invoice.performancePeriodEnd.toISOString().split("T")[0] : "",
     paymentTerms: invoice?.paymentTerms ?? "",
     taxMode: invoice?.taxMode ?? "",
-    currency: invoice?.currency ?? "EUR",
+    currency: invoice?.currency ?? (invoiceSystemFields.find((f) => f.systemColumn === "currency")?.defaultValue ?? "EUR"),
     notes: invoice?.notes ?? "",
   });
+  const [headerErrors, setHeaderErrors] = useState<Record<string, string>>({});
+
+  const initialInvoiceDynamic: Record<string, string | null> = {};
+  for (const fc of invoiceCustomFields) {
+    const fv = invoice?.fieldValues?.find((v) => v.fieldConfigId === fc.id);
+    initialInvoiceDynamic[fc.key] = fv?.value ?? fc.defaultValue ?? "";
+  }
+  const [invoiceDynamic, setInvoiceDynamic] = useState(initialInvoiceDynamic);
+  const [invoiceDynamicErrors, setInvoiceDynamicErrors] = useState<Record<string, string>>({});
 
   type LineItem = {
     pos: string; key: string; label: string; description: string;
@@ -109,24 +151,86 @@ export function CustomerEditor({
 
   const taxOptions = taxMapper.length > 0 ? taxMapper : TAX_DEFAULT;
 
-  function validateDynamic(): boolean {
-    const errs: Record<string, string> = {};
-    for (const fc of fieldConfigs) {
+  // Read core value for a system field by its systemColumn.
+  function coreValueFor(col: string): string {
+    switch (col) {
+      case "name": return core.name;
+      case "email": return core.email;
+      case "phone": return core.phone;
+      case "address": return core.address;
+      case "status": return core.status;
+      default: return "";
+    }
+  }
+  function setCoreValueFor(col: string, val: string) {
+    setCore((c) => {
+      switch (col) {
+        case "name": return { ...c, name: val };
+        case "email": return { ...c, email: val };
+        case "phone": return { ...c, phone: val };
+        case "address": return { ...c, address: val };
+        case "status": return { ...c, status: (val || "ACTIVE") as CoreState["status"] };
+        default: return c;
+      }
+    });
+  }
+
+  function headerValueFor(col: string): string {
+    return (header as unknown as Record<string, string>)[col] ?? "";
+  }
+  function setHeaderValueFor(col: string, val: string) {
+    setHeader((h) => ({ ...h, [col]: val } as HeaderState));
+  }
+
+  function validateDetails(): boolean {
+    const ce: Record<string, string> = {};
+    for (const fc of customerSystemFields) {
+      if (!fc.systemColumn || !fc.required) continue;
+      const v = coreValueFor(fc.systemColumn);
+      if (v === null || v === undefined || v === "") ce[fc.systemColumn] = `${fc.name} is required`;
+    }
+    // Name is always required regardless of config.
+    if (!core.name) ce.name = "Name is required";
+    setCoreErrors(ce);
+
+    const de: Record<string, string> = {};
+    for (const fc of customerCustomFields) {
       if (fc.required) {
-        const v = dynamic[fc.key];
-        if (v === null || v === undefined || v === "") errs[fc.key] = `${fc.name} is required`;
+        const v = customerDynamic[fc.key];
+        if (v === null || v === undefined || v === "") de[fc.key] = `${fc.name} is required`;
       }
     }
-    setDynamicErrors(errs);
-    return Object.keys(errs).length === 0;
+    setCustomerDynamicErrors(de);
+    return Object.keys(ce).length === 0 && Object.keys(de).length === 0;
+  }
+
+  function validateInvoice(): boolean {
+    const he: Record<string, string> = {};
+    for (const fc of invoiceSystemFields) {
+      if (!fc.systemColumn || !fc.required) continue;
+      const v = headerValueFor(fc.systemColumn);
+      if (v === null || v === undefined || v === "") he[fc.systemColumn] = `${fc.name} is required`;
+    }
+    // Invoice number is always required.
+    if (!header.invoiceNumber) he.invoiceNumber = "Invoice number is required";
+    setHeaderErrors(he);
+
+    const de: Record<string, string> = {};
+    for (const fc of invoiceCustomFields) {
+      if (fc.required) {
+        const v = invoiceDynamic[fc.key];
+        if (v === null || v === undefined || v === "") de[fc.key] = `${fc.name} is required`;
+      }
+    }
+    setInvoiceDynamicErrors(de);
+    return Object.keys(he).length === 0 && Object.keys(de).length === 0;
   }
 
   async function saveDetails(advance: boolean) {
-    if (!core.name) { toast.error("Name is required"); return; }
-    if (!validateDynamic()) { toast.error("Please fill required fields"); return; }
+    if (!validateDetails()) { toast.error("Please fill required fields"); return; }
     startTransition(async () => {
       try {
-        const payload = { core, dynamic };
+        const payload = { core, dynamic: customerDynamic };
         if (customer) {
           await updateCustomer(customer.id, payload);
           toast.success("Customer saved");
@@ -144,13 +248,14 @@ export function CustomerEditor({
 
   async function saveInvoice(action: "save" | "next" | "generate") {
     if (!customer) { toast.error("Save customer first"); return; }
-    if (!header.invoiceNumber) { toast.error("Invoice number is required"); setInvoiceSubTab("header"); return; }
+    if (!validateInvoice()) { toast.error("Please fill required fields"); setInvoiceSubTab("header"); return; }
     startTransition(async () => {
       try {
         await saveInvoiceForCustomer({
           customerId: customer.id,
           invoiceId: invoice?.id ?? null,
           header,
+          dynamic: invoiceDynamic,
           lineItems: items.map((li, i) => ({
             pos: parseLocaleNumber(li.pos) ?? i + 1,
             key: li.key || null,
@@ -210,40 +315,38 @@ export function CustomerEditor({
           <Card><CardContent className="p-6 space-y-5">
             <h2 className="text-lg font-semibold">Customer Details</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><Label>Name <span className="text-destructive">*</span></Label><Input value={core.name} onChange={(e) => setCore({ ...core, name: e.target.value })} className="mt-1" /></div>
-              <div><Label>Email</Label><Input type="email" value={core.email} onChange={(e) => setCore({ ...core, email: e.target.value })} className="mt-1" /></div>
-              <div><Label>Phone</Label><Input value={core.phone} onChange={(e) => setCore({ ...core, phone: e.target.value })} className="mt-1" /></div>
-              <div>
-                <Label>Status</Label>
-                <Select value={core.status} onValueChange={(v) => setCore({ ...core, status: v as "ACTIVE" | "INACTIVE" | "ARCHIVED" })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ACTIVE">Active</SelectItem>
-                    <SelectItem value="INACTIVE">Inactive</SelectItem>
-                    <SelectItem value="ARCHIVED">Archived</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="md:col-span-2"><Label>Address</Label><Textarea value={core.address} onChange={(e) => setCore({ ...core, address: e.target.value })} className="mt-1" rows={2} /></div>
+              {customerSystemFields.map((fc) => {
+                if (!fc.systemColumn) return null;
+                const col = fc.systemColumn;
+                const v = coreValueFor(col);
+                const err = coreErrors[col];
+                const isFullRow = col === "address" || fc.type === "textarea";
+                return (
+                  <div key={fc.id} className={isFullRow ? "md:col-span-2" : ""}>
+                    <Label>{fc.name} {fc.required && <span className="text-destructive">*</span>}</Label>
+                    <SystemCustomerInput field={fc} value={v} onChange={(val) => setCoreValueFor(col, val)} />
+                    {fc.helpText && <p className="text-xs text-muted-foreground mt-1">{fc.helpText}</p>}
+                    {err && <p className="text-xs text-destructive mt-1">{err}</p>}
+                  </div>
+                );
+              })}
             </div>
 
-            {fieldConfigs.length > 0 && (
-              <>
-                <div className="border-t pt-5">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">Additional fields</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {fieldConfigs.map((fc) => (
-                      <DynamicFieldRenderer
-                        key={fc.id}
-                        field={fc}
-                        value={dynamic[fc.key]}
-                        onChange={(v) => setDynamic({ ...dynamic, [fc.key]: v ?? "" })}
-                        error={dynamicErrors[fc.key]}
-                      />
-                    ))}
-                  </div>
+            {customerCustomFields.length > 0 && (
+              <div className="border-t pt-5">
+                <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">Additional fields</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {customerCustomFields.map((fc) => (
+                    <DynamicFieldRenderer
+                      key={fc.id}
+                      field={fc}
+                      value={customerDynamic[fc.key]}
+                      onChange={(val) => setCustomerDynamic({ ...customerDynamic, [fc.key]: val ?? "" })}
+                      error={customerDynamicErrors[fc.key]}
+                    />
+                  ))}
                 </div>
-              </>
+              </div>
             )}
 
             <div className="flex justify-end gap-2 pt-3 border-t">
@@ -265,25 +368,39 @@ export function CustomerEditor({
 
               <TabsContent value="header" className="space-y-4 mt-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><Label>Invoice number <span className="text-destructive">*</span></Label><Input value={header.invoiceNumber} onChange={(e) => setHeader({ ...header, invoiceNumber: e.target.value })} className="mt-1 font-mono" /></div>
-                  <div><Label>Quote number</Label><Input value={header.quoteNumber} onChange={(e) => setHeader({ ...header, quoteNumber: e.target.value })} className="mt-1 font-mono" /></div>
-                  <div><Label>Invoice date</Label><Input type="date" value={header.invoiceDate} onChange={(e) => setHeader({ ...header, invoiceDate: e.target.value })} className="mt-1" /></div>
-                  <div><Label>Payment terms</Label><Input value={header.paymentTerms} onChange={(e) => setHeader({ ...header, paymentTerms: e.target.value })} placeholder="Net 30" className="mt-1" /></div>
-                  <div><Label>Performance period start</Label><Input type="date" value={header.performancePeriodStart} onChange={(e) => setHeader({ ...header, performancePeriodStart: e.target.value })} className="mt-1" /></div>
-                  <div><Label>Performance period end</Label><Input type="date" value={header.performancePeriodEnd} onChange={(e) => setHeader({ ...header, performancePeriodEnd: e.target.value })} className="mt-1" /></div>
-                  <div>
-                    <Label>Tax mode</Label>
-                    <Select value={header.taxMode || "__none__"} onValueChange={(v) => setHeader({ ...header, taxMode: v === "__none__" ? "" : v })}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="Choose tax mode" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">—</SelectItem>
-                        {taxOptions.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div><Label>Currency</Label><Input value={header.currency} onChange={(e) => setHeader({ ...header, currency: e.target.value })} className="mt-1" /></div>
-                  <div className="md:col-span-2"><Label>Notes</Label><Textarea value={header.notes} onChange={(e) => setHeader({ ...header, notes: e.target.value })} className="mt-1" rows={2} /></div>
+                  {invoiceSystemFields.map((fc) => {
+                    if (!fc.systemColumn) return null;
+                    const col = fc.systemColumn;
+                    const v = headerValueFor(col);
+                    const err = headerErrors[col];
+                    const isFullRow = fc.type === "textarea";
+                    return (
+                      <div key={fc.id} className={isFullRow ? "md:col-span-2" : ""}>
+                        <Label>{fc.name} {fc.required && <span className="text-destructive">*</span>}</Label>
+                        <SystemInvoiceInput field={fc} value={v} onChange={(val) => setHeaderValueFor(col, val)} taxOptions={taxOptions} />
+                        {fc.helpText && <p className="text-xs text-muted-foreground mt-1">{fc.helpText}</p>}
+                        {err && <p className="text-xs text-destructive mt-1">{err}</p>}
+                      </div>
+                    );
+                  })}
                 </div>
+
+                {invoiceCustomFields.length > 0 && (
+                  <div className="border-t pt-5">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">Additional invoice fields</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {invoiceCustomFields.map((fc) => (
+                        <DynamicFieldRenderer
+                          key={fc.id}
+                          field={fc}
+                          value={invoiceDynamic[fc.key]}
+                          onChange={(val) => setInvoiceDynamic({ ...invoiceDynamic, [fc.key]: val ?? "" })}
+                          error={invoiceDynamicErrors[fc.key]}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="items" className="space-y-4 mt-4">
@@ -390,6 +507,53 @@ export function CustomerEditor({
       />
     </Tabs>
   );
+}
+
+function SystemCustomerInput({ field, value, onChange }: { field: SystemFieldConfig; value: string; onChange: (v: string) => void }) {
+  if (field.systemColumn === "status") {
+    return (
+      <Select value={value || "ACTIVE"} onValueChange={onChange}>
+        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {STATUS_OPTIONS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    );
+  }
+  if (field.type === "textarea") {
+    return <Textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder ?? ""} className="mt-1" rows={2} />;
+  }
+  const inputType = field.type === "email" ? "email" : field.type === "phone" ? "tel" : "text";
+  return <Input type={inputType} value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder ?? ""} className="mt-1" />;
+}
+
+function SystemInvoiceInput({
+  field, value, onChange, taxOptions,
+}: {
+  field: SystemFieldConfig;
+  value: string;
+  onChange: (v: string) => void;
+  taxOptions: { label: string; value: string }[];
+}) {
+  if (field.systemColumn === "taxMode") {
+    return (
+      <Select value={value || "__none__"} onValueChange={(v) => onChange(v === "__none__" ? "" : v)}>
+        <SelectTrigger className="mt-1"><SelectValue placeholder={field.placeholder ?? "Choose tax mode"} /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">—</SelectItem>
+          {taxOptions.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    );
+  }
+  if (field.type === "date") {
+    return <Input type="date" value={value} onChange={(e) => onChange(e.target.value)} className="mt-1" />;
+  }
+  if (field.type === "textarea") {
+    return <Textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder ?? ""} className="mt-1" rows={2} />;
+  }
+  const isMono = field.systemColumn === "invoiceNumber" || field.systemColumn === "quoteNumber";
+  return <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder ?? ""} className={`mt-1 ${isMono ? "font-mono" : ""}`} />;
 }
 
 function GenerateDialog({

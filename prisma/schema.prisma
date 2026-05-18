@@ -232,6 +232,22 @@ model InvoiceFieldConfig {
   systemColumn   String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  values         InvoiceFieldValue[]
+}
+
+model InvoiceFieldValue {
+  id            String              @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  fieldConfigId String
+  fieldConfig   InvoiceFieldConfig  @relation(fields: [fieldConfigId], references: [id], onDelete: Cascade)
+  key           String
+  value         String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([invoiceId, fieldConfigId])
+  @@index([key])
 }
 
 model InvoiceVariable {
@@ -277,6 +293,7 @@ model Invoice {
   updatedAt                DateTime            @updatedAt
   lineItems                InvoiceLineItem[]
   generatedDocuments       GeneratedDocument[]
+  fieldValues              InvoiceFieldValue[]
 
   @@index([customerId])
   @@index([invoiceNumber])

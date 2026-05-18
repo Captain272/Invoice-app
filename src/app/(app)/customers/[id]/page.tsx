@@ -2,17 +2,29 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CustomerEditor } from "./CustomerEditor";
+import { ensureSystemConfig } from "@/server/actions/system-config";
 
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const isNew = id === "new";
+  await ensureSystemConfig();
 
-  const [customer, fieldConfigs, mappers, templates] = await Promise.all([
+  const [customer, customerSystemFields, customerCustomFields, invoiceFields, mappers, templates] = await Promise.all([
     isNew ? null : prisma.customer.findUnique({
       where: { id },
-      include: { fieldValues: true, invoices: { orderBy: { updatedAt: "desc" }, take: 1, include: { lineItems: { orderBy: { displayOrder: "asc" } } } }, generatedDocuments: { orderBy: { createdAt: "desc" } } },
+      include: {
+        fieldValues: true,
+        invoices: {
+          orderBy: { updatedAt: "desc" },
+          take: 1,
+          include: { lineItems: { orderBy: { displayOrder: "asc" } }, fieldValues: true },
+        },
+        generatedDocuments: { orderBy: { createdAt: "desc" } },
+      },
     }),
+    prisma.customerFieldConfig.findMany({ where: { isActive: true, isSystem: true }, orderBy: { displayOrder: "asc" }, include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } } }),
     prisma.customerFieldConfig.findMany({ where: { isActive: true, isSystem: false }, orderBy: { displayOrder: "asc" }, include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } } }),
+    prisma.invoiceFieldConfig.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" }, include: { optionMapper: { include: { values: { orderBy: { displayOrder: "asc" } } } } } }),
     prisma.optionMapper.findMany({ include: { values: { orderBy: { displayOrder: "asc" } } } }),
     prisma.reportTemplate.findMany({ where: { isActive: true } }),
   ]);
@@ -35,7 +47,9 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
 
       <CustomerEditor
         customer={customer}
-        fieldConfigs={fieldConfigs}
+        customerSystemFields={customerSystemFields}
+        customerCustomFields={customerCustomFields}
+        invoiceFields={invoiceFields}
         invoice={invoice}
         documents={customer?.generatedDocuments ?? []}
         templates={templates}
