@@ -71,7 +71,14 @@ export async function createCompanyField(input: z.input<typeof fieldConfigSchema
 
 export async function updateCompanyField(id: string, input: Partial<z.input<typeof fieldConfigSchema>>) {
   const session = await requirePerm("config:write");
+  const existing = await prisma.companyFieldConfig.findUnique({ where: { id } });
+  if (!existing) throw new Error("Field not found");
   const data = fieldConfigSchema.partial().parse(input);
+  if (existing.isSystem) {
+    delete (data as Record<string, unknown>).key;
+    delete (data as Record<string, unknown>).type;
+    delete (data as Record<string, unknown>).optionMapperId;
+  }
   const f = await prisma.companyFieldConfig.update({ where: { id }, data });
   await logAudit({ userId: session.user.id, action: "FIELD_UPDATED", entityType: "CompanyFieldConfig", entityId: id });
   revalidatePath("/configuration");
@@ -80,6 +87,9 @@ export async function updateCompanyField(id: string, input: Partial<z.input<type
 
 export async function deleteCompanyField(id: string) {
   const session = await requirePerm("config:write");
+  const existing = await prisma.companyFieldConfig.findUnique({ where: { id } });
+  if (!existing) throw new Error("Field not found");
+  if (existing.isSystem) throw new Error("System fields cannot be deleted — deactivate them instead");
   const used = await prisma.companyFieldValue.count({ where: { fieldConfigId: id } });
   if (used > 0) throw new Error("Field is in use — deactivate instead of deleting");
   await prisma.companyFieldConfig.delete({ where: { id } });
@@ -161,6 +171,7 @@ export async function uploadReportTemplate(formData: FormData) {
     isActive: formData.get("isActive") !== "false",
   };
   const parsed = reportTemplateSchema.parse(fields);
+  const exportFormat = (String(formData.get("exportFormat") ?? "PDF") as "PDF" | "XML" | "PDFA3");
 
   const file = formData.get("file");
   if (!(file instanceof File)) throw new Error("Template file is required");
@@ -177,6 +188,7 @@ export async function uploadReportTemplate(formData: FormData) {
       reportName: parsed.reportName,
       reportType: parsed.reportType,
       templateType: parsed.templateType,
+      exportFormat,
       fileNameFormula: parsed.fileNameFormula,
       description: parsed.description ?? null,
       isActive: parsed.isActive,
@@ -194,6 +206,62 @@ export async function uploadReportTemplate(formData: FormData) {
     metadata: { name: parsed.reportName, size: file.size },
   });
 
+  revalidatePath("/configuration");
+  return tpl;
+}
+
+export async function updateReportTemplate(id: string, formData: FormData) {
+  const session = await requirePerm("config:write");
+  const existing = await prisma.reportTemplate.findUnique({ where: { id } });
+  if (!existing) throw new Error("Template not found");
+
+  const fields = {
+    reportName: String(formData.get("reportName") ?? existing.reportName),
+    reportType: String(formData.get("reportType") ?? existing.reportType),
+    templateType: String(formData.get("templateType") ?? existing.templateType) as "HTML" | "XML",
+    fileNameFormula: String(formData.get("fileNameFormula") ?? existing.fileNameFormula),
+    description: ((formData.get("description") as string | null) ?? existing.description) || null,
+    isActive: formData.get("isActive") === "false" ? false : existing.isActive,
+  };
+  const parsed = reportTemplateSchema.parse(fields);
+
+  const exportFormatRaw = formData.get("exportFormat");
+  const exportFormat = exportFormatRaw ? (String(exportFormatRaw) as "PDF" | "XML" | "PDFA3") : existing.exportFormat;
+
+  const data: Record<string, unknown> = {
+    reportName: parsed.reportName,
+    reportType: parsed.reportType,
+    templateType: parsed.templateType,
+    fileNameFormula: parsed.fileNameFormula,
+    description: parsed.description ?? null,
+    isActive: parsed.isActive,
+    exportFormat,
+  };
+
+  // Optional file replacement — if a new file is supplied, validate + upload
+  // and bump the version. The old object stays in storage so historical
+  // documents that referenced it still resolve.
+  const file = formData.get("file");
+  if (file instanceof File && file.size > 0) {
+    if (file.size > MAX_TEMPLATE_SIZE) throw new Error("Template file too large (max 2 MB)");
+    const ext = path.extname(file.name).toLowerCase();
+    if (!ALLOWED_TEMPLATE_EXTS.has(ext)) throw new Error("Only .html or .xml templates allowed");
+    const safeName = `${Date.now()}_${safeFileName(file.name)}`;
+    const buf = Buffer.from(await file.arrayBuffer());
+    const savedPath = await writeFile(STORAGE.templates, safeName, buf);
+    data.templatePath = savedPath;
+    data.originalFileName = file.name;
+    data.version = existing.version + 1;
+  }
+
+  const tpl = await prisma.reportTemplate.update({ where: { id }, data });
+  await logAudit({
+    userId: session.user.id,
+    action: "TEMPLATE_UPDATED",
+    entityType: "ReportTemplate",
+    entityId: id,
+    metadata: { name: parsed.reportName, version: tpl.version, reuploaded: file instanceof File && file.size > 0 },
+  });
   revalidatePath("/configuration");
   return tpl;
 }

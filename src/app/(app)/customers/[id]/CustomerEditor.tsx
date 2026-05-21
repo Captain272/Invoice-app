@@ -569,10 +569,10 @@ function GenerateDialog({
   onDone: (docId?: string) => void;
 }) {
   const [templateId, setTemplateId] = useState<string>(templates[0]?.id ?? "");
-  const [format, setFormat] = useState<"PDF" | "XML" | "PDFA3">("PDF");
   const [running, setRunning] = useState(false);
 
   const tpl = templates.find((t) => t.id === templateId);
+  const format = tpl?.exportFormat ?? "PDF";
 
   async function onGenerate() {
     if (!customerId || !templateId) return;
@@ -624,32 +624,13 @@ function GenerateDialog({
               <Select value={templateId} onValueChange={setTemplateId}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {templates.map((t) => <SelectItem key={t.id} value={t.id}>{t.reportName} ({t.templateType})</SelectItem>)}
+                  {templates.map((t) => {
+                    const fmt = t.exportFormat === "PDFA3" ? "PDF/A-3" : t.exportFormat;
+                    return <SelectItem key={t.id} value={t.id}>{t.reportName} → {fmt}</SelectItem>;
+                  })}
                 </SelectContent>
               </Select>
-            </div>
-            <div>
-              <Label>Export format</Label>
-              <div className="grid grid-cols-3 gap-2 mt-1">
-                {(["PDF", "XML", "PDFA3"] as const).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setFormat(f)}
-                    className={`rounded-md border p-3 text-sm transition-colors ${format === f ? "border-amber bg-amber/10 text-foreground" : "hover:bg-muted/40"}`}
-                  >
-                    <div className="font-medium">{f === "PDFA3" ? "PDF/A-3" : f}</div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {f === "PDF" ? "Standard PDF" : f === "XML" ? "Structured data" : "Archive-ready"}
-                    </div>
-                  </button>
-                ))}
-              </div>
-              {format === "PDFA3" && (
-                <p className="mt-2 text-xs text-amber-foreground bg-amber/10 border border-amber/20 rounded-md p-2">
-                  PDF/A-3 conversion is currently a placeholder — see <code>src/lib/document-generation/pdfa3.ts</code> to wire up a real provider.
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground mt-1">Output format is configured per template under Configuration → Report Mappings.</p>
             </div>
 
             {tpl && (
@@ -657,7 +638,7 @@ function GenerateDialog({
                 <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span className="font-medium">{customerName}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span className="font-mono">{invoiceNumber || "—"}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Template</span><span>{tpl.reportName}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Format</span><span>{format}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Format</span><span>{format === "PDFA3" ? "PDF/A-3" : format}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Filename formula</span><span className="font-mono">{tpl.fileNameFormula}</span></div>
               </div>
             )}

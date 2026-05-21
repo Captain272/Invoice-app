@@ -18,7 +18,7 @@ export async function saveCompanyProfile(input: {
 }) {
   const session = await requirePerm("company:write");
   const core = companyProfileSchema.parse(input.core);
-  const configs = await prisma.companyFieldConfig.findMany({ where: { isActive: true } });
+  const configs = await prisma.companyFieldConfig.findMany({ where: { isActive: true, isSystem: false } });
   for (const fc of configs) {
     if (fc.required) {
       const v = input.dynamic?.[fc.key];

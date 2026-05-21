@@ -183,6 +183,8 @@ model CompanyFieldConfig {
   helpText       String?
   displayOrder   Int                 @default(0)
   isActive       Boolean             @default(true)
+  isSystem       Boolean             @default(false)
+  systemColumn   String?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   values         CompanyFieldValue[]
@@ -323,6 +325,7 @@ model ReportTemplate {
   reportName          String
   reportType          String
   templateType        TemplateType
+  exportFormat        ExportFormat        @default(PDF)
   fileNameFormula     String
   templatePath        String
   originalFileName    String

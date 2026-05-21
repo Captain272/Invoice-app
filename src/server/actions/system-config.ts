@@ -2,6 +2,19 @@
 
 import { prisma } from "@/lib/prisma";
 
+const COMPANY_SYSTEM_FIELDS = [
+  { key: "company_name", name: "Company name", type: "text" as const, displayOrder: -100, required: true, systemColumn: "companyName" },
+  { key: "vat_id", name: "VAT ID", type: "text" as const, displayOrder: -90, required: false, systemColumn: "vatId" },
+  { key: "address", name: "Address", type: "textarea" as const, displayOrder: -80, required: false, systemColumn: "address" },
+  { key: "email", name: "Email", type: "email" as const, displayOrder: -70, required: false, systemColumn: "email" },
+  { key: "phone", name: "Phone", type: "phone" as const, displayOrder: -60, required: false, systemColumn: "phone" },
+  { key: "website", name: "Website", type: "text" as const, displayOrder: -50, required: false, systemColumn: "website" },
+  { key: "tax_number", name: "Tax number", type: "text" as const, displayOrder: -40, required: false, systemColumn: "taxNumber" },
+  { key: "bank_name", name: "Bank name", type: "text" as const, displayOrder: -30, required: false, systemColumn: "bankName" },
+  { key: "iban", name: "IBAN", type: "text" as const, displayOrder: -20, required: false, systemColumn: "iban" },
+  { key: "swift", name: "SWIFT / BIC", type: "text" as const, displayOrder: -10, required: false, systemColumn: "swift" },
+];
+
 const CUSTOMER_SYSTEM_FIELDS = [
   { key: "name", name: "Name", type: "text" as const, displayOrder: -50, required: true, systemColumn: "name" },
   { key: "email", name: "Email", type: "email" as const, displayOrder: -40, required: false, systemColumn: "email" },
@@ -42,6 +55,13 @@ let bootstrapped = false;
 export async function ensureSystemConfig(): Promise<void> {
   if (bootstrapped) return;
   await Promise.all([
+    ...COMPANY_SYSTEM_FIELDS.map((f) =>
+      prisma.companyFieldConfig.upsert({
+        where: { key: f.key },
+        update: { isSystem: true, systemColumn: f.systemColumn },
+        create: { ...f, isSystem: true, isActive: true },
+      }),
+    ),
     ...CUSTOMER_SYSTEM_FIELDS.map((f) =>
       prisma.customerFieldConfig.upsert({
         where: { key: f.key },
