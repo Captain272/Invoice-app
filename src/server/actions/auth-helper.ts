@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -63,7 +64,9 @@ export async function ensureUserProvisioned(): Promise<CurrentUser | null> {
   return { id: updated.id, email: updated.email, name: updated.name, role: updated.role };
 }
 
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+// Wrapped in React cache() so the auth.getUser() network call + user lookup run
+// once per request, even though the layout and the page both call getSession().
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const supabase = await createSupabaseServerClient();
   const { data: { user: authUser } } = await supabase.auth.getUser();
   if (!authUser) return null;
@@ -82,7 +85,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     return { id: row.id, email: row.email, name: row.name, role: row.role };
   }
   return ensureUserProvisioned();
-}
+});
 
 export async function getSession(): Promise<CurrentSession | null> {
   const user = await getCurrentUser();
