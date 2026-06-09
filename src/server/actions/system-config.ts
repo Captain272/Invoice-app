@@ -52,31 +52,61 @@ const INVOICE_VARIABLES = [
 
 let bootstrapped = false;
 
+// Run an array of write thunks in small sequential batches so we never open
+// more connections than the Prisma pool allows (default 5). Fanning all ~36
+// upserts out at once exhausts the pool and triggers P2024 timeouts.
+async function runBatched(thunks: Array<() => PromiseLike<unknown>>, size = 4): Promise<void> {
+  for (let i = 0; i < thunks.length; i += size) {
+    await Promise.all(thunks.slice(i, i + size).map((run) => run()));
+  }
+}
+
 export async function ensureSystemConfig(): Promise<void> {
   if (bootstrapped) return;
-  await Promise.all([
-    ...COMPANY_SYSTEM_FIELDS.map((f) =>
+
+  // Cheap existence check: if the system rows are already seeded, skip the
+  // upsert stampede entirely. The in-memory `bootstrapped` flag resets on every
+  // serverless cold start, so without this guard the writes ran on every load.
+  const [companyCount, customerCount, invoiceCount, variableCount] = await Promise.all([
+    prisma.companyFieldConfig.count({ where: { isSystem: true } }),
+    prisma.customerFieldConfig.count({ where: { isSystem: true } }),
+    prisma.invoiceFieldConfig.count({ where: { isSystem: true } }),
+    prisma.invoiceVariable.count(),
+  ]);
+
+  if (
+    companyCount >= COMPANY_SYSTEM_FIELDS.length &&
+    customerCount >= CUSTOMER_SYSTEM_FIELDS.length &&
+    invoiceCount >= INVOICE_SYSTEM_FIELDS.length &&
+    variableCount >= INVOICE_VARIABLES.length
+  ) {
+    bootstrapped = true;
+    return;
+  }
+
+  await runBatched([
+    ...COMPANY_SYSTEM_FIELDS.map((f) => () =>
       prisma.companyFieldConfig.upsert({
         where: { key: f.key },
         update: { isSystem: true, systemColumn: f.systemColumn },
         create: { ...f, isSystem: true, isActive: true },
       }),
     ),
-    ...CUSTOMER_SYSTEM_FIELDS.map((f) =>
+    ...CUSTOMER_SYSTEM_FIELDS.map((f) => () =>
       prisma.customerFieldConfig.upsert({
         where: { key: f.key },
         update: { isSystem: true, systemColumn: f.systemColumn },
         create: { ...f, isSystem: true, isActive: true },
       }),
     ),
-    ...INVOICE_SYSTEM_FIELDS.map((f) =>
+    ...INVOICE_SYSTEM_FIELDS.map((f) => () =>
       prisma.invoiceFieldConfig.upsert({
         where: { key: f.key },
         update: { isSystem: true, systemColumn: f.systemColumn },
         create: { ...f, isSystem: true, isActive: true },
       }),
     ),
-    ...INVOICE_VARIABLES.map((v) =>
+    ...INVOICE_VARIABLES.map((v) => () =>
       prisma.invoiceVariable.upsert({
         where: { scope_key: { scope: v.scope, key: v.key } },
         update: {},
@@ -84,5 +114,6 @@ export async function ensureSystemConfig(): Promise<void> {
       }),
     ),
   ]);
+
   bootstrapped = true;
 }
